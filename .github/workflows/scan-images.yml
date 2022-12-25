@@ -3,7 +3,7 @@ name: scan-images
 on:
   schedule:
     # every Monday at 12:00PM
-    - cron: "0 12 * * 2"
+    - cron: "0 12 * * 1"
 
 # Remove all permissions from GITHUB_TOKEN except metadata.
 permissions: {}
