@@ -18,6 +18,10 @@ package gc
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/service/elb"
+	"github.com/aws/aws-sdk-go/service/elbv2"
+	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
 
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
@@ -87,4 +91,88 @@ func (fn *ResourceCleanupFuncs) Execute(ctx context.Context, resources []*AWSRes
 	}
 
 	return nil
+}
+
+const maxELBsDescribeTagsRequest = 20
+
+func chunkELBs(names []string) [][]string {
+	var chunked [][]string
+	for i := 0; i < len(names); i += maxELBsDescribeTagsRequest {
+		end := i + maxELBsDescribeTagsRequest
+		if end > len(names) {
+			end = len(names)
+		}
+		chunked = append(chunked, names[i:end])
+	}
+	return chunked
+}
+
+func (s *Service) filterNLBsByOwnedTag(tagKey string) ([]string, error) {
+	var names []string
+	err := s.elbv2Client.DescribeLoadBalancersPages(&elbv2.DescribeLoadBalancersInput{}, func(r *elbv2.DescribeLoadBalancersOutput, last bool) bool {
+		for _, lb := range r.LoadBalancers {
+			names = append(names, *lb.LoadBalancerArn)
+		}
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	var ownedNlbs []string
+	lbChunks := chunkELBs(names)
+	for _, chunk := range lbChunks {
+		output, err := s.elbv2Client.DescribeTags(&elbv2.DescribeTagsInput{ResourceArns: aws.StringSlice(chunk)})
+		if err != nil {
+			return nil, err
+		}
+		for _, tagDesc := range output.TagDescriptions {
+			for _, tag := range tagDesc.Tags {
+				if *tag.Key == tagKey && *tag.Value == string(infrav1.ResourceLifecycleOwned) {
+					ownedNlbs = append(ownedNlbs, *tagDesc.ResourceArn)
+				}
+			}
+		}
+	}
+
+	return ownedNlbs, nil
+}
+
+func (s *Service) filterByOwnedTag(tagKey string) ([]string, error) {
+	var names []string
+	err := s.elbClient.DescribeLoadBalancersPages(&elb.DescribeLoadBalancersInput{}, func(r *elb.DescribeLoadBalancersOutput, last bool) bool {
+		for _, lb := range r.LoadBalancerDescriptions {
+			names = append(names, *lb.LoadBalancerName)
+		}
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	var ownedElbs []string
+	lbChunks := chunkELBs(names)
+	for _, chunk := range lbChunks {
+		output, err := s.elbClient.DescribeTags(&elb.DescribeTagsInput{LoadBalancerNames: aws.StringSlice(chunk)})
+		if err != nil {
+			return nil, err
+		}
+		for _, tagDesc := range output.TagDescriptions {
+			for _, tag := range tagDesc.Tags {
+				if *tag.Key == tagKey && *tag.Value == string(infrav1.ResourceLifecycleOwned) {
+					ownedElbs = append(ownedElbs, *tagDesc.LoadBalancerName)
+				}
+			}
+		}
+	}
+
+	return ownedElbs, nil
 }

@@ -240,7 +240,7 @@ func (r *AWSClusterReconciler) reconcileDelete(ctx context.Context, clusterScope
 
 	if r.ExternalResourceGC {
 		gcSvc := gc.NewService(clusterScope)
-		if gcErr := gcSvc.ReconcileDelete(ctx); gcErr != nil {
+		if gcErr := gcSvc.ReconcileDelete(ctx, elbsvc, sgService); gcErr != nil {
 			return reconcile.Result{}, fmt.Errorf("failed delete reconcile for gc service: %w", gcErr)
 		}
 	}

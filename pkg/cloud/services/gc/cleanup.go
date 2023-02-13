@@ -19,6 +19,7 @@ package gc
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services"
 	"strconv"
 	"strings"
 
@@ -39,7 +40,7 @@ const (
 // ReconcileDelete is responsible for determining if the infra cluster needs to be garbage collected. If
 // does then it will perform garbage collection. For example, it will delete the ELB/NLBs that where created
 // as a result of Services of type load balancer.
-func (s *Service) ReconcileDelete(ctx context.Context) error {
+func (s *Service) ReconcileDelete(ctx context.Context, elbsvc services.ELBInterface, sgService services.SecurityGroupInterface) error {
 	s.scope.Info("reconciling deletion for garbage collection")
 
 	val, found := annotations.Get(s.scope.InfraCluster(), expinfrav1.ExternalResourceGCAnnotation)
@@ -58,10 +59,10 @@ func (s *Service) ReconcileDelete(ctx context.Context) error {
 		return nil
 	}
 
-	return s.deleteResources(ctx)
+	return s.deleteResources(ctx, elbsvc, sgService)
 }
 
-func (s *Service) deleteResources(ctx context.Context) error {
+func (s *Service) deleteResources(ctx context.Context, elbsvc services.ELBInterface, sgService services.SecurityGroupInterface) error {
 	s.scope.Info("deleting aws resources created by tenant cluster")
 
 	serviceTag := infrav1.ClusterAWSCloudProviderTagKey(s.scope.KubernetesClusterName())
@@ -76,14 +77,24 @@ func (s *Service) deleteResources(ctx context.Context) error {
 	}
 
 	awsOutput, err := s.resourceTaggingClient.GetResourcesWithContext(ctx, &awsInput)
-	if err != nil {
-		return fmt.Errorf("getting tagged resources: %w", err)
+	if err == nil {
+		fmt.Println("fake deletion")
+		//return fmt.Errorf("getting tagged resources: %w", err)
+		err1 := elbsvc.DeleteWorkloadLoadbalancers()
+		err2 := sgService.DeleteWorkloadsSecurityGroups()
+		if err1 == nil && err2 == nil {
+			return nil
+		}
+		return fmt.Errorf("getting tagged resources: %w", err1)
 	}
 
 	resources := []*AWSResource{}
 
 	for i := range awsOutput.ResourceTagMappingList {
+
 		mapping := awsOutput.ResourceTagMappingList[i]
+		fmt.Printf("resouce: %v\n", mapping)
+		fmt.Printf("======\n")
 		parsedArn, err := arn.Parse(*mapping.ResourceARN)
 		if err != nil {
 			return fmt.Errorf("parsing resource arn %s: %w", *mapping.ResourceARN, err)
@@ -98,6 +109,8 @@ func (s *Service) deleteResources(ctx context.Context) error {
 			ARN:  &parsedArn,
 			Tags: tags,
 		})
+		fmt.Printf("the resource ARN is: %v\n", parsedArn)
+		fmt.Printf("the resource tags is: %v\n", tags)
 	}
 
 	if deleteErr := s.cleanupFuncs.Execute(ctx, resources); deleteErr != nil {

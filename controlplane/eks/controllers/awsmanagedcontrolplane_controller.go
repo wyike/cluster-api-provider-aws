@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/services/elb"
 	"strings"
 	"time"
 
@@ -321,6 +322,7 @@ func (r *AWSManagedControlPlaneReconciler) reconcileDelete(ctx context.Context, 
 
 	ekssvc := eks.NewService(managedScope)
 	ec2svc := ec2.NewService(managedScope)
+	elbsvc := elb.NewService(managedScope)
 	networkSvc := network.NewService(managedScope)
 	sgService := securitygroup.NewService(managedScope, securityGroupRolesForControlPlane(managedScope))
 
@@ -341,7 +343,7 @@ func (r *AWSManagedControlPlaneReconciler) reconcileDelete(ctx context.Context, 
 
 	if r.ExternalResourceGC {
 		gcSvc := gc.NewService(managedScope)
-		if gcErr := gcSvc.ReconcileDelete(ctx); gcErr != nil {
+		if gcErr := gcSvc.ReconcileDelete(ctx, elbsvc, sgService); gcErr != nil {
 			return reconcile.Result{}, fmt.Errorf("failed delete reconcile for gc service: %w", gcErr)
 		}
 	}

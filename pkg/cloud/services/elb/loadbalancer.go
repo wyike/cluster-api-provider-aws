@@ -51,6 +51,8 @@ const elbResourceType = "elasticloadbalancing:loadbalancer"
 // see: https://docs.aws.amazon.com/elasticloadbalancing/2012-06-01/APIReference/API_DescribeTags.html
 const maxELBsDescribeTagsRequest = 20
 
+const serviceNameTag = "kubernetes.io/service-name"
+
 // ReconcileLoadbalancers reconciles the load balancers for the given cluster.
 func (s *Service) ReconcileLoadbalancers() error {
 	s.scope.Debug("Reconciling load balancers")
@@ -519,15 +521,15 @@ func (s *Service) deleteAPIServerELB() error {
 // cluster is deleted, its ELB is deleted; the ELBs found in this function will typically be for
 // Services that were not deleted before the cluster was deleted.
 func (s *Service) deleteAWSCloudProviderELBs() error {
-	s.scope.Debug("Deleting AWS cloud provider load balancers (created for LoadBalancer-type Services)")
+	s.scope.Info("Deleting AWS cloud provider load balancers (created for LoadBalancer-type Services)")
 
 	elbs, err := s.listAWSCloudProviderOwnedELBs()
 	if err != nil {
 		return err
 	}
-
+	fmt.Printf("get the lbslbslbslbs1111111: %v\n", elbs)
 	for _, elb := range elbs {
-		s.scope.Debug("Deleting AWS cloud provider load balancer", "arn", elb)
+		s.scope.Info("111111Deleting AWS cloud provider load balancer", "arn", elb)
 		if err := s.deleteClassicELB(elb); err != nil {
 			return err
 		}
@@ -562,6 +564,88 @@ func (s *Service) DeleteLoadbalancers() error {
 	if err := s.deleteExistingNLBs(); err != nil {
 		return errors.Wrap(err, "failed to delete AWS cloud provider load balancer(s)")
 	}
+
+	return nil
+}
+
+// DeleteLoadbalancers deletes the workloads related load balancers for the given cluster.
+func (s *Service) DeleteWorkloadLoadbalancers() error {
+	s.scope.Debug("Deleting load balancers for workloads")
+	serviceTag := infrav1.ClusterAWSCloudProviderTagKey(s.scope.KubernetesClusterName())
+
+	elbs, err := s.filterByOwnedTag(serviceTag)
+	if err != nil {
+		return err
+	}
+	for _, e := range elbs {
+		output, err := s.ELBClient.DescribeTags(&elb.DescribeTagsInput{LoadBalancerNames: aws.StringSlice([]string{e})})
+		if err != nil {
+			return err
+		}
+
+		var found bool
+		for _, tag := range output.TagDescriptions[0].Tags {
+			if *tag.Key == serviceNameTag {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			s.scope.Info("Resource wasn't created for a Service via CCM", "elb", e)
+			continue
+		}
+		s.scope.Info("Deleting AWS cloud provider elastic load balancer", "arn", e)
+		if err := s.deleteClassicELB(e); err != nil {
+			return err
+		}
+	}
+	//if err := wait.WaitForWithRetryable(wait.NewBackoff(), func() (done bool, err error) {
+	//	elbs, err := s.filterByOwnedTag(serviceTag)
+	//	if err != nil {
+	//		return false, err
+	//	}
+	//	done = len(elbs) == 0
+	//	return done, nil
+	//}); err != nil {
+	//	return errors.Wrapf(err, "failed to wait for %q load balancer deletions", s.scope.Name())
+	//}
+
+	nlbs, err := s.filterNLBsByOwnedTag(serviceTag)
+	if err != nil {
+		return err
+	}
+	for _, nlb := range nlbs {
+		output, err := s.ELBV2Client.DescribeTags(&elbv2.DescribeTagsInput{ResourceArns: aws.StringSlice(nlb)})
+		if err != nil {
+			return err
+		}
+
+		var found bool
+		for _, tag := range output.TagDescriptions[0].Tags {
+			if *tag.Key == serviceNameTag {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			s.scope.Info("Resource wasn't created for a Service via CCM", "nlb", nlb)
+			continue
+		}
+
+		s.scope.Info("Deleting AWS cloud provider network load balancer", "nlb", nlb)
+		if err := s.deleteLB(nlb); err != nil {
+			return err
+		}
+	}
+	//if err := wait.WaitForWithRetryable(wait.NewBackoff(), func() (done bool, err error) {
+	//	nlbs, err = s.filterNLBsByOwnedTag(serviceTag)
+	//	done = len(nlbs) == 0
+	//	return done, nil
+	//}); err != nil {
+	//	return errors.Wrapf(err, "failed to wait for %q load balancer deletion", s.scope.Name())
+	//}
 
 	return nil
 }
@@ -1185,6 +1269,8 @@ func (s *Service) listByTag(tag string) ([]string, error) {
 		for _, tagmapping := range r.ResourceTagMappingList {
 			if tagmapping.ResourceARN != nil {
 				parsedARN, err := arn.Parse(*tagmapping.ResourceARN)
+				fmt.Printf("testtest %v\n", parsedARN)
+
 				if err != nil {
 					s.scope.Info("failed to parse ARN", "arn", *tagmapping.ResourceARN, "tag", tag)
 					continue
@@ -1197,6 +1283,7 @@ func (s *Service) listByTag(tag string) ([]string, error) {
 					s.scope.Info("ignoring alb created by service, consider enabling garbage collection", "arn", *tagmapping.ResourceARN, "tag", tag)
 					continue
 				}
+
 				name := strings.ReplaceAll(parsedARN.Resource, "loadbalancer/", "")
 				if name == "" {
 					s.scope.Info("failed to parse ARN", "arn", *tagmapping.ResourceARN, "tag", tag)
@@ -1250,11 +1337,46 @@ func (s *Service) filterByOwnedTag(tagKey string) ([]string, error) {
 	return ownedElbs, nil
 }
 
+func (s *Service) filterNLBsByOwnedTag(tagKey string) ([]string, error) {
+	var names []string
+	err := s.ELBV2Client.DescribeLoadBalancersPages(&elbv2.DescribeLoadBalancersInput{}, func(r *elbv2.DescribeLoadBalancersOutput, last bool) bool {
+		for _, lb := range r.LoadBalancers {
+			names = append(names, *lb.LoadBalancerArn)
+		}
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	var ownedNlbs []string
+	lbChunks := chunkELBs(names)
+	for _, chunk := range lbChunks {
+		output, err := s.ELBV2Client.DescribeTags(&elbv2.DescribeTagsInput{ResourceArns: aws.StringSlice(chunk)})
+		if err != nil {
+			return nil, err
+		}
+		for _, tagDesc := range output.TagDescriptions {
+			for _, tag := range tagDesc.Tags {
+				if *tag.Key == tagKey && *tag.Value == string(infrav1.ResourceLifecycleOwned) {
+					ownedNlbs = append(ownedNlbs, *tagDesc.ResourceArn)
+				}
+			}
+		}
+	}
+
+	return ownedNlbs, nil
+}
+
 func (s *Service) listAWSCloudProviderOwnedELBs() ([]string, error) {
 	// k8s.io/cluster/<name>, created by k/k cloud provider
 	serviceTag := infrav1.ClusterAWSCloudProviderTagKey(s.scope.Name())
 	arns, err := s.listByTag(serviceTag)
-	if err != nil {
+	if err == nil {
 		// retry by listing all ELBs as listByTag will fail in air-gapped environments
 		arns, err = s.filterByOwnedTag(serviceTag)
 		if err != nil {

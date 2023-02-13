@@ -91,6 +91,7 @@ type SecretInterface interface {
 // controller.
 type ELBInterface interface {
 	DeleteLoadbalancers() error
+	DeleteWorkloadLoadbalancers() error
 	ReconcileLoadbalancers() error
 	IsInstanceRegisteredWithAPIServerELB(i *infrav1.Instance) (bool, error)
 	IsInstanceRegisteredWithAPIServerLB(i *infrav1.Instance) (string, bool, error)
@@ -111,6 +112,7 @@ type NetworkInterface interface {
 // controller.
 type SecurityGroupInterface interface {
 	DeleteSecurityGroups() error
+	DeleteWorkloadsSecurityGroups() error
 	ReconcileSecurityGroups() error
 }
 

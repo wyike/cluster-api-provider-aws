@@ -84,4 +84,7 @@ type ClusterScoper interface {
 	PatchObject() error
 	// Close closes the current scope persisting the cluster configuration and status.
 	Close() error
+
+	// VPC returns the cluster VPC.
+	VPC() *infrav1.VPCSpec
 }

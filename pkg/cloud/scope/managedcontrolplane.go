@@ -126,6 +126,21 @@ type ManagedControlPlaneScope struct {
 	allowAdditionalRoles bool
 }
 
+func (s *ManagedControlPlaneScope) ControlPlaneLoadBalancerScheme() infrav1.ELBScheme {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (s *ManagedControlPlaneScope) ControlPlaneLoadBalancerName() *string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (s *ManagedControlPlaneScope) ControlPlaneEndpoint() clusterv1.APIEndpoint {
+	//TODO implement me
+	panic("implement me")
+}
+
 // RemoteClient returns the Kubernetes client for connecting to the workload cluster.
 func (s *ManagedControlPlaneScope) RemoteClient() (client.Client, error) {
 	clusterKey := client.ObjectKey{

@@ -299,6 +299,54 @@ func (s *Service) DeleteSecurityGroups() error {
 	return nil
 }
 
+const (
+	eksClusterNameTag = "aws:eks:cluster-name"
+)
+
+// DeleteWorkloadsSecurityGroups will delete security groups introduced by LB service, created by cloud provider
+func (s *Service) DeleteWorkloadsSecurityGroups() error {
+	if s.scope.VPC().ID == "" {
+		s.scope.Debug("Skipping security group deletion, vpc-id is nil", "vpc-id", s.scope.VPC().ID)
+		return nil
+	}
+
+	clusterGroups, err := s.describeProviderOwnedSecurityGroups()
+	if err != nil {
+		return err
+	}
+
+	// Security groups already deleted, exit early
+	if len(clusterGroups) == 0 {
+		return nil
+	}
+
+	for i := range clusterGroups {
+		sg := clusterGroups[i]
+
+		if eksClusterName := sg.Tags[eksClusterNameTag]; eksClusterName != "" {
+			s.scope.Debug("Security group was created by EKS directly", "securitygroup", sg.ID, "cluster_name", eksClusterName)
+			continue
+		}
+
+		current := sg.IngressRules
+		if err := s.revokeAllSecurityGroupIngressRules(sg.ID); awserrors.IsIgnorableSecurityGroupError(err) != nil {
+			return err
+		}
+
+		s.scope.Debug("Revoked ingress rules from security group", "revoked-ingress-rules", current, "security-group-id", sg.ID)
+
+		if deleteErr := s.deleteSecurityGroup(&sg, "cloud provider managed"); deleteErr != nil {
+			err = kerrors.NewAggregate([]error{err, deleteErr})
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *Service) deleteSecurityGroup(sg *infrav1.SecurityGroup, typ string) error {
 	input := &ec2.DeleteSecurityGroupInput{
 		GroupId: aws.String(sg.ID),
@@ -320,6 +368,30 @@ func (s *Service) describeClusterOwnedSecurityGroups() ([]infrav1.SecurityGroup,
 		Filters: []*ec2.Filter{
 			filter.EC2.VPC(s.scope.VPC().ID),
 			filter.EC2.ClusterOwned(s.scope.Name()),
+		},
+	}
+
+	groups := []infrav1.SecurityGroup{}
+
+	err := s.EC2Client.DescribeSecurityGroupsPages(input, func(out *ec2.DescribeSecurityGroupsOutput, last bool) bool {
+		for _, group := range out.SecurityGroups {
+			if group != nil {
+				groups = append(groups, makeInfraSecurityGroup(group))
+			}
+		}
+		return true
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to describe cluster-owned security groups in vpc %q", s.scope.VPC().ID)
+	}
+	return groups, nil
+}
+
+func (s *Service) describeProviderOwnedSecurityGroups() ([]infrav1.SecurityGroup, error) {
+	input := &ec2.DescribeSecurityGroupsInput{
+		Filters: []*ec2.Filter{
+			filter.EC2.VPC(s.scope.VPC().ID),
+			filter.EC2.ProviderOwned(s.scope.KubernetesClusterName()),
 		},
 	}
 

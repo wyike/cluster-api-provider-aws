@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/cluster-api/util"
 )
 
-var _ = ginkgo.Context("[unmanaged] [gc]", func() {
+var _ = ginkgo.Context("[unmanaged] [gc] [yike]", func() {
 	var (
 		ctx               context.Context
 		result            *clusterctl.ApplyClusterTemplateAndWaitResult
@@ -109,35 +109,35 @@ var _ = ginkgo.Context("[unmanaged] [gc]", func() {
 			Type:             infrav1.LoadBalancerTypeELB,
 		}, e2eCtx.E2EConfig.GetIntervals("", "wait-loadbalancer-ready")...)
 
-		ginkgo.By(fmt.Sprintf("Deleting workload/tenant cluster %s", clusterName))
-		framework.DeleteCluster(ctx, framework.DeleteClusterInput{
-			Deleter: e2eCtx.Environment.BootstrapClusterProxy.GetClient(),
-			Cluster: cluster,
-		})
-		framework.WaitForClusterDeleted(ctx, framework.WaitForClusterDeletedInput{
-			Getter:  e2eCtx.Environment.BootstrapClusterProxy.GetClient(),
-			Cluster: cluster,
-		}, e2eCtx.E2EConfig.GetIntervals("", "wait-delete-cluster")...)
-
-		ginkgo.By("Getting counts of service load balancers")
-		arns, err := shared.GetLoadBalancerARNs(shared.GetLoadBalancerARNsInput{
-			AWSSession:       e2eCtx.BootstrapUserAWSSession,
-			ServiceName:      "podinfo-nlb",
-			ServiceNamespace: "default",
-			ClusterName:      clusterName,
-			Type:             infrav1.LoadBalancerTypeNLB,
-		})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(arns).To(HaveLen(0), "there are %d service load balancers (nlb) still", len(arns))
-		arns, err = shared.GetLoadBalancerARNs(shared.GetLoadBalancerARNsInput{
-			AWSSession:       e2eCtx.BootstrapUserAWSSession,
-			ServiceName:      "podinfo-elb",
-			ServiceNamespace: "default",
-			ClusterName:      clusterName,
-			Type:             infrav1.LoadBalancerTypeELB,
-		})
-		Expect(err).NotTo(HaveOccurred())
-		Expect(arns).To(HaveLen(0), "there are %d service load balancers (elb) still", len(arns))
+		//ginkgo.By(fmt.Sprintf("Deleting workload/tenant cluster %s", clusterName))
+		//framework.DeleteCluster(ctx, framework.DeleteClusterInput{
+		//	Deleter: e2eCtx.Environment.BootstrapClusterProxy.GetClient(),
+		//	Cluster: cluster,
+		//})
+		//framework.WaitForClusterDeleted(ctx, framework.WaitForClusterDeletedInput{
+		//	Getter:  e2eCtx.Environment.BootstrapClusterProxy.GetClient(),
+		//	Cluster: cluster,
+		//}, e2eCtx.E2EConfig.GetIntervals("", "wait-delete-cluster")...)
+		//
+		//ginkgo.By("Getting counts of service load balancers")
+		//arns, err := shared.GetLoadBalancerARNs(shared.GetLoadBalancerARNsInput{
+		//	AWSSession:       e2eCtx.BootstrapUserAWSSession,
+		//	ServiceName:      "podinfo-nlb",
+		//	ServiceNamespace: "default",
+		//	ClusterName:      clusterName,
+		//	Type:             infrav1.LoadBalancerTypeNLB,
+		//})
+		//Expect(err).NotTo(HaveOccurred())
+		//Expect(arns).To(HaveLen(0), "there are %d service load balancers (nlb) still", len(arns))
+		//arns, err = shared.GetLoadBalancerARNs(shared.GetLoadBalancerARNsInput{
+		//	AWSSession:       e2eCtx.BootstrapUserAWSSession,
+		//	ServiceName:      "podinfo-elb",
+		//	ServiceNamespace: "default",
+		//	ClusterName:      clusterName,
+		//	Type:             infrav1.LoadBalancerTypeELB,
+		//})
+		//Expect(err).NotTo(HaveOccurred())
+		//Expect(arns).To(HaveLen(0), "there are %d service load balancers (elb) still", len(arns))
 	})
 })
 

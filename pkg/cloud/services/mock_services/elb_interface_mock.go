@@ -64,6 +64,20 @@ func (mr *MockELBInterfaceMockRecorder) DeleteLoadbalancers() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLoadbalancers", reflect.TypeOf((*MockELBInterface)(nil).DeleteLoadbalancers))
 }
 
+// DeleteWorkloadLoadbalancers mocks base method.
+func (m *MockELBInterface) DeleteWorkloadLoadbalancers() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkloadLoadbalancers")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkloadLoadbalancers indicates an expected call of DeleteWorkloadLoadbalancers.
+func (mr *MockELBInterfaceMockRecorder) DeleteWorkloadLoadbalancers() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkloadLoadbalancers", reflect.TypeOf((*MockELBInterface)(nil).DeleteWorkloadLoadbalancers))
+}
+
 // DeregisterInstanceFromAPIServerELB mocks base method.
 func (m *MockELBInterface) DeregisterInstanceFromAPIServerELB(arg0 *v1beta2.Instance) error {
 	m.ctrl.T.Helper()
