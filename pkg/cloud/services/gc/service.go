@@ -37,6 +37,8 @@ type Service struct {
 	resourceTaggingClient resourcegroupstaggingapiiface.ResourceGroupsTaggingAPIAPI
 	ec2Client             ec2iface.EC2API
 	cleanupFuncs          ResourceCleanupFuncs
+	collectFuncs          ResourceCollectFuncs
+	gcStratgey            gcStrategy
 }
 
 // NewService creates a new Service.
@@ -48,8 +50,18 @@ func NewService(clusterScope cloud.ClusterScoper, opts ...ServiceOption) *Servic
 		resourceTaggingClient: scope.NewResourgeTaggingClient(clusterScope, clusterScope, clusterScope, clusterScope.InfraCluster()),
 		ec2Client:             scope.NewEC2Client(clusterScope, clusterScope, clusterScope, clusterScope.InfraCluster()),
 		cleanupFuncs:          ResourceCleanupFuncs{},
+		collectFuncs:          ResourceCollectFuncs{},
 	}
+
 	addDefaultCleanupFuncs(svc)
+
+	var useTagging bool
+	if !useTagging {
+		addCollectFuncs(svc)
+		svc.gcStratgey = newSecondaryGcStrategy(svc.collectFuncs, svc.cleanupFuncs)
+	} else {
+		svc.gcStratgey = newDefaultGcStrategy(clusterScope, svc.resourceTaggingClient, svc.cleanupFuncs)
+	}
 
 	for _, opt := range opts {
 		opt(svc)
@@ -63,6 +75,15 @@ func addDefaultCleanupFuncs(s *Service) {
 		s.deleteLoadBalancers,
 		s.deleteTargetGroups,
 		s.deleteSecurityGroups,
+	}
+}
+
+func addCollectFuncs(s *Service) {
+	s.collectFuncs = []ResourceCollectFunc{
+		s.getProviderOwnedLoadBalancers,
+		s.getProviderOwnedLoadBalancersV2,
+		s.getProviderOwnedTargetgroups,
+		s.getProviderOwnedSecurityGroups,
 	}
 }
 
@@ -87,4 +108,24 @@ func (fn *ResourceCleanupFuncs) Execute(ctx context.Context, resources []*AWSRes
 	}
 
 	return nil
+}
+
+// ResourceCollectFunc is a function type to collect resources for a specific AWS service type.
+type ResourceCollectFunc func() ([]*AWSResource, error)
+
+// ResourceCollectFuncs is a collection of ResourceCollectFunc.
+type ResourceCollectFuncs []ResourceCollectFunc
+
+// Execute will execute all the defined collect functions against the aws resources.
+func (fn *ResourceCollectFuncs) Execute() ([]*AWSResource, error) {
+	resources := []*AWSResource{}
+	for _, f := range *fn {
+		rs, err := f()
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, rs...)
+	}
+
+	return resources, nil
 }

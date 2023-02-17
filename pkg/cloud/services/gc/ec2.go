@@ -23,6 +23,9 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/converters"
+	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/cloud/filter"
 )
 
 func (s *Service) deleteSecurityGroups(ctx context.Context, resources []*AWSResource) error {
@@ -31,7 +34,6 @@ func (s *Service) deleteSecurityGroups(ctx context.Context, resources []*AWSReso
 			s.scope.Debug("Resource not a security group for deletion", "arn", resource.ARN.String())
 			continue
 		}
-
 		groupID := strings.ReplaceAll(resource.ARN.Resource, "security-group/", "")
 		if err := s.deleteSecurityGroup(ctx, groupID); err != nil {
 			return fmt.Errorf("deleting security group %s: %w", groupID, err)
@@ -66,4 +68,34 @@ func (s *Service) deleteSecurityGroup(ctx context.Context, securityGroupID strin
 	}
 
 	return nil
+}
+
+// getProviderOwnedSecurityGroups gets cloud provider created security groups of ELBs for this cluster, filtering by tag: kubernetes.io/cluster/<cluster-name>:owned and VPC Id.
+func (s *Service) getProviderOwnedSecurityGroups() ([]*AWSResource, error) {
+	input := &ec2.DescribeSecurityGroupsInput{
+		Filters: []*ec2.Filter{
+			filter.EC2.ProviderOwned(s.scope.KubernetesClusterName()),
+		},
+	}
+
+	resources := []*AWSResource{}
+	err := s.ec2Client.DescribeSecurityGroupsPages(input, func(out *ec2.DescribeSecurityGroupsOutput, last bool) bool {
+		for _, group := range out.SecurityGroups {
+			if group != nil {
+				arn := composeArn(sgService, sgResourcePrefix+*group.GroupId)
+				resource, err := composeAWSResource(aws.String(arn), converters.TagsToMap(group.Tags))
+				if err != nil {
+					s.scope.Error(err, "compose aws resource error: %v")
+					return false
+				}
+				resources = append(resources, resource)
+			}
+		}
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return resources, nil
 }
