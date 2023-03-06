@@ -36,7 +36,8 @@ type Service struct {
 	elbv2Client           elbv2iface.ELBV2API
 	resourceTaggingClient resourcegroupstaggingapiiface.ResourceGroupsTaggingAPIAPI
 	ec2Client             ec2iface.EC2API
-	cleanupFuncs          ResourceCleanupFuncs
+
+	gcStrategy
 }
 
 // NewService creates a new Service.
@@ -47,9 +48,7 @@ func NewService(clusterScope cloud.ClusterScoper, opts ...ServiceOption) *Servic
 		elbv2Client:           scope.NewELBv2Client(clusterScope, clusterScope, clusterScope, clusterScope.InfraCluster()),
 		resourceTaggingClient: scope.NewResourgeTaggingClient(clusterScope, clusterScope, clusterScope, clusterScope.InfraCluster()),
 		ec2Client:             scope.NewEC2Client(clusterScope, clusterScope, clusterScope, clusterScope.InfraCluster()),
-		cleanupFuncs:          ResourceCleanupFuncs{},
 	}
-	addDefaultCleanupFuncs(svc)
 
 	for _, opt := range opts {
 		opt(svc)
@@ -58,11 +57,26 @@ func NewService(clusterScope cloud.ClusterScoper, opts ...ServiceOption) *Servic
 	return svc
 }
 
-func addDefaultCleanupFuncs(s *Service) {
-	s.cleanupFuncs = []ResourceCleanupFunc{
+func addDefaultCleanupFuncs(s *Service) ResourceCleanupFuncs {
+	return []ResourceCleanupFunc{
 		s.deleteLoadBalancers,
 		s.deleteTargetGroups,
 		s.deleteSecurityGroups,
+	}
+}
+
+func addDefaultCollectFuncs(s *Service) ResourceCollectFuncs {
+	return []ResourceCollectFunc{
+		s.defaultGetResources,
+	}
+}
+
+func addSecondaryCollectFuncs(s *Service) ResourceCollectFuncs {
+	return []ResourceCollectFunc{
+		s.getProviderOwnedLoadBalancers,
+		s.getProviderOwnedLoadBalancersV2,
+		s.getProviderOwnedTargetgroups,
+		s.getProviderOwnedSecurityGroups,
 	}
 }
 
@@ -87,4 +101,24 @@ func (fn *ResourceCleanupFuncs) Execute(ctx context.Context, resources []*AWSRes
 	}
 
 	return nil
+}
+
+// ResourceCollectFunc is a function type to collect resources for a specific AWS service type.
+type ResourceCollectFunc func(ctx context.Context) ([]*AWSResource, error)
+
+// ResourceCollectFuncs is a collection of ResourceCollectFunc.
+type ResourceCollectFuncs []ResourceCollectFunc
+
+// Execute will execute all the defined collect functions against the aws resources.
+func (fn *ResourceCollectFuncs) Execute(ctx context.Context) ([]*AWSResource, error) {
+	resources := []*AWSResource{}
+	for _, f := range *fn {
+		rs, err := f(ctx)
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, rs...)
+	}
+
+	return resources, nil
 }

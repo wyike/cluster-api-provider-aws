@@ -53,3 +53,16 @@ func withEC2Client(client ec2iface.EC2API) ServiceOption {
 		s.ec2Client = client
 	}
 }
+
+// withEC2Client is an option for specifying a AWS EC2 Client.
+func withGcStrategy(defaultStrategy bool) ServiceOption {
+	if !defaultStrategy {
+		return func(s *Service) {
+			s.gcStrategy = newDefaultGcStrategy(addSecondaryCollectFuncs(s), addDefaultCleanupFuncs(s))
+		}
+	}
+
+	return func(s *Service) {
+		s.gcStrategy = newSecondaryGcStrategy(addDefaultCollectFuncs(s), addDefaultCleanupFuncs(s))
+	}
+}

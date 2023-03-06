@@ -25,8 +25,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
 	rgapi "github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
-
 	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
+
 	expinfrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/annotations"
 )
@@ -63,8 +63,12 @@ func (s *Service) ReconcileDelete(ctx context.Context) error {
 
 func (s *Service) deleteResources(ctx context.Context) error {
 	s.scope.Info("deleting aws resources created by tenant cluster")
+	return s.gcStrategy.Cleanup(ctx)
+}
 
+func (s *Service) defaultGetResources(ctx context.Context) ([]*AWSResource, error) {
 	serviceTag := infrav1.ClusterAWSCloudProviderTagKey(s.scope.KubernetesClusterName())
+
 	awsInput := rgapi.GetResourcesInput{
 		ResourceTypeFilters: nil,
 		TagFilters: []*rgapi.TagFilter{
@@ -77,7 +81,7 @@ func (s *Service) deleteResources(ctx context.Context) error {
 
 	awsOutput, err := s.resourceTaggingClient.GetResourcesWithContext(ctx, &awsInput)
 	if err != nil {
-		return fmt.Errorf("getting tagged resources: %w", err)
+		return nil, err
 	}
 
 	resources := []*AWSResource{}
@@ -86,7 +90,7 @@ func (s *Service) deleteResources(ctx context.Context) error {
 		mapping := awsOutput.ResourceTagMappingList[i]
 		parsedArn, err := arn.Parse(*mapping.ResourceARN)
 		if err != nil {
-			return fmt.Errorf("parsing resource arn %s: %w", *mapping.ResourceARN, err)
+			return nil, fmt.Errorf("parsing resource arn %s: %w", *mapping.ResourceARN, err)
 		}
 
 		tags := map[string]string{}
@@ -100,11 +104,7 @@ func (s *Service) deleteResources(ctx context.Context) error {
 		})
 	}
 
-	if deleteErr := s.cleanupFuncs.Execute(ctx, resources); deleteErr != nil {
-		return fmt.Errorf("deleting resources: %w", deleteErr)
-	}
-
-	return nil
+	return resources, nil
 }
 
 func (s *Service) isMatchingResource(resource *AWSResource, serviceName, resourceName string) bool {
