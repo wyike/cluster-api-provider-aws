@@ -36,8 +36,8 @@ type Service struct {
 	elbv2Client           elbv2iface.ELBV2API
 	resourceTaggingClient resourcegroupstaggingapiiface.ResourceGroupsTaggingAPIAPI
 	ec2Client             ec2iface.EC2API
-
-	gcStrategy
+	cleanupFuncs          ResourceCleanupFuncs
+	collector
 }
 
 // NewService creates a new Service.
@@ -48,7 +48,9 @@ func NewService(clusterScope cloud.ClusterScoper, opts ...ServiceOption) *Servic
 		elbv2Client:           scope.NewELBv2Client(clusterScope, clusterScope, clusterScope, clusterScope.InfraCluster()),
 		resourceTaggingClient: scope.NewResourgeTaggingClient(clusterScope, clusterScope, clusterScope, clusterScope.InfraCluster()),
 		ec2Client:             scope.NewEC2Client(clusterScope, clusterScope, clusterScope, clusterScope.InfraCluster()),
+		cleanupFuncs:          ResourceCleanupFuncs{},
 	}
+	addDefaultCleanupFuncs(svc)
 
 	for _, opt := range opts {
 		opt(svc)
@@ -57,26 +59,11 @@ func NewService(clusterScope cloud.ClusterScoper, opts ...ServiceOption) *Servic
 	return svc
 }
 
-func addDefaultCleanupFuncs(s *Service) ResourceCleanupFuncs {
-	return []ResourceCleanupFunc{
+func addDefaultCleanupFuncs(s *Service) {
+	s.cleanupFuncs = []ResourceCleanupFunc{
 		s.deleteLoadBalancers,
 		s.deleteTargetGroups,
 		s.deleteSecurityGroups,
-	}
-}
-
-func addDefaultCollectFuncs(s *Service) ResourceCollectFuncs {
-	return []ResourceCollectFunc{
-		s.defaultGetResources,
-	}
-}
-
-func addSecondaryCollectFuncs(s *Service) ResourceCollectFuncs {
-	return []ResourceCollectFunc{
-		s.getProviderOwnedLoadBalancers,
-		s.getProviderOwnedLoadBalancersV2,
-		s.getProviderOwnedTargetgroups,
-		s.getProviderOwnedSecurityGroups,
 	}
 }
 

@@ -1,64 +1,23 @@
 package gc
 
-import (
-	"context"
-	"fmt"
-)
-
-type gcStrategy interface {
-	Cleanup(ctx context.Context) error
+type collector interface {
+	addCollectFuncs(s *Service) ResourceCollectFuncs
 }
 
-func newDefaultGcStrategy(collect ResourceCollectFuncs, cleanup ResourceCleanupFuncs) *defaultGcStrategy {
-	gs := &defaultGcStrategy{
-		collects: collect,
-		cleanups: cleanup,
-	}
+type defaultCollector ResourceCollectFuncs
+type secondaryCollector ResourceCollectFuncs
 
-	return gs
+func (c *defaultCollector) addCollectFuncs(s *Service) ResourceCollectFuncs {
+	return []ResourceCollectFunc{
+		s.defaultGetResources,
+	}
 }
 
-func newSecondaryGcStrategy(collect ResourceCollectFuncs, cleanup ResourceCleanupFuncs) *SecondaryGcStrategy {
-	gs := &SecondaryGcStrategy{
-		collects: collect,
-		cleanups: cleanup,
+func (c *secondaryCollector) addCollectFuncs(s *Service) ResourceCollectFuncs {
+	return []ResourceCollectFunc{
+		s.getProviderOwnedLoadBalancers,
+		s.getProviderOwnedLoadBalancersV2,
+		s.getProviderOwnedTargetgroups,
+		s.getProviderOwnedSecurityGroups,
 	}
-
-	return gs
-}
-
-type defaultGcStrategy struct {
-	collects ResourceCollectFuncs
-	cleanups ResourceCleanupFuncs
-}
-
-type SecondaryGcStrategy struct {
-	collects ResourceCollectFuncs
-	cleanups ResourceCleanupFuncs
-}
-
-func (s *defaultGcStrategy) Cleanup(ctx context.Context) error {
-	resources, err := s.collects.Execute(ctx)
-	if err != nil {
-		return err
-	}
-
-	if deleteErr := s.cleanups.Execute(ctx, resources); deleteErr != nil {
-		return fmt.Errorf("deleting resources: %w", deleteErr)
-	}
-
-	return nil
-}
-
-func (s *SecondaryGcStrategy) Cleanup(ctx context.Context) error {
-	resources, err := s.collects.Execute(ctx)
-	if err != nil {
-		return err
-	}
-
-	if deleteErr := s.cleanups.Execute(ctx, resources); deleteErr != nil {
-		return fmt.Errorf("deleting resources: %w", deleteErr)
-	}
-
-	return nil
 }

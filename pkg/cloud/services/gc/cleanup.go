@@ -26,7 +26,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	rgapi "github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
 	infrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/api/v1beta2"
-
 	expinfrav1 "sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/v1beta2"
 	"sigs.k8s.io/cluster-api-provider-aws/v2/pkg/annotations"
 )
@@ -63,7 +62,18 @@ func (s *Service) ReconcileDelete(ctx context.Context) error {
 
 func (s *Service) deleteResources(ctx context.Context) error {
 	s.scope.Info("deleting aws resources created by tenant cluster")
-	return s.gcStrategy.Cleanup(ctx)
+
+	collects := s.collector.addCollectFuncs(s)
+	resources, err := collects.Execute(ctx)
+	if err != nil {
+		return err
+	}
+
+	if deleteErr := s.cleanupFuncs.Execute(ctx, resources); deleteErr != nil {
+		return fmt.Errorf("deleting resources: %w", deleteErr)
+	}
+
+	return nil
 }
 
 func (s *Service) defaultGetResources(ctx context.Context) ([]*AWSResource, error) {

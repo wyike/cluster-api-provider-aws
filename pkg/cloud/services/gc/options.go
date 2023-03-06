@@ -58,11 +58,11 @@ func withEC2Client(client ec2iface.EC2API) ServiceOption {
 func withGcStrategy(defaultStrategy bool) ServiceOption {
 	if !defaultStrategy {
 		return func(s *Service) {
-			s.gcStrategy = newDefaultGcStrategy(addSecondaryCollectFuncs(s), addDefaultCleanupFuncs(s))
+			s.collector = &secondaryCollector{}
 		}
 	}
 
 	return func(s *Service) {
-		s.gcStrategy = newSecondaryGcStrategy(addDefaultCollectFuncs(s), addDefaultCleanupFuncs(s))
+		s.collector = &defaultCollector{}
 	}
 }
